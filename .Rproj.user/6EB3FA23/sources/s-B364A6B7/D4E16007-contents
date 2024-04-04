@@ -1,0 +1,7 @@
+library(ggplot2)
+library(RPostgres)
+library(dplyr)
+library(tidyr)
+
+setwd('C:/Users/jsala/ownCloud/Base_de_Dades/Backups/VMS/PShistorical2')
+vmsint = read.csv('vmsint_PS_2005-2021.csv', sep=',', dec='.', header=T)

@@ -1,0 +1,182 @@
+library(ggplot2)
+library(RPostgres)
+library(dplyr)
+library(tidyr)
+library(scales)
+library(forcats)
+library(sf)
+
+setwd('/Users/jsala/ownCloud/GIS/Life - Intemares/CommercialFishing/OTB/encriptedPlots/')
+rm(list=ls())
+
+drv <- dbDriver("PostgreSQL")
+db = 'joanLocalhost'
+host_db = 'localhost'
+db_port = '5432'
+db_user = 'postgres'
+pwd = 'jnscrm28'
+con <- dbConnect(RPostgres::Postgres(), dbname = db, host=host_db, port=db_port, user=db_user, password=pwd)
+
+##ACTIVITY INSIDE LIC
+query = 'select t1.*, "vesselsLIC"."VesselCode2" from "LIC_otb1721" t1
+JOIN "vesselsLIC" on "vesselsLIC"."Code" = t1."Code"'
+d = dbGetQuery(con, query)
+d$year = as.factor(d$year)
+d$Code = as.factor(d$Code)
+d$BasePortCode = as.factor(d$BasePortCode)
+d$VesselCode2 = as.factor(d$VesselCode2)
+d[is.na(d)] = 0
+
+#aggregate by year and vessel code (get rid of BasePortCode)
+d = d %>% group_by(year, Code, VesselCode2) %>% summarize(trips=sum(trips),
+                                              Ftime=sum(Ftime),
+                                              Kg_TOT=sum(Kg_TOT),
+                                              E_TOT=sum(E_TOT),
+                                             tripsLIC=sum(tripsLIC),
+                                              FtimeLIC=sum(FtimeLIC),
+                                              Kg_TOTLIC=sum(Kg_TOTLIC),
+                                              E_TOTLIC=sum(E_TOTLIC)) %>% mutate(tripsP=(tripsLIC/trips)*100,
+                                                                                 FtimeP=(FtimeLIC/Ftime)*100,
+                                                                                 Kg_TOTP=(Kg_TOTLIC/Kg_TOT)*100,
+                                                                                 E_TOTP=(E_TOTLIC/E_TOT)*100)
+
+#Calculate mean by 5 years
+#levels = expand.grid(year = levels(d$year), Code = levels(d$Code))
+#d = left_join(levels, d)
+#d[is.na(d)] = 0
+
+#no se puede forzar a que haya datos para todas las embarcaciones todos los años porque hay muchos cambios de puerto base.
+#ya se ha comprobado que solo embarcaciones con puerto base llançà, PDS, Roses faenan en la zona
+#cuando no hay datos de actividad alguna significa que la embarcacion no esta faenando en la zona
+#si hay datos de actividad en la zona pero no dentro del LIC entonces sí que el valor dentro del LIC es zero, 
+#pero no cuando no hay datos en la zona porque puede ser que el barco esté trabajando en otro puerto. Para el estudio nos interesa
+#la importancia de los caladeros del LIC para las embarcaiones que faenan en la zona.
+#POR TANTO: no hay union con la tabla levels
+
+dM = d %>% group_by(Code, VesselCode2) %>%  summarize(
+  TripsM=mean(trips), TripsMe=(sd(trips)/sqrt(5)*1.96),
+  FtimeM=mean(Ftime), FtimeMe=(sd(Ftime)/sqrt(5))*1.96,
+  Kg_TOTM=mean(Kg_TOT), Kg_TOTMe=(sd(Kg_TOT)/sqrt(5))*1.96,
+  E_TOTM=mean(E_TOT), E_TOTMe=(sd(E_TOT)/sqrt(5))*1.96,
+  TripsLICM=mean(tripsLIC), TripsLICMe=(sd(tripsLIC)/sqrt(5)*1.96),                      
+  FtimeLICM=mean(FtimeLIC), FtimeLICMe=(sd(FtimeLIC)/sqrt(5))*1.96,
+                                           Kg_TOTLICM=mean(Kg_TOTLIC), Kg_TOTLICMe=(sd(Kg_TOTLIC)/sqrt(5))*1.96,
+                                           E_TOTLICM=mean(E_TOTLIC), E_TOTLICMe=(sd(E_TOTLIC)/sqrt(5))*1.96,
+                                           tripsPM=mean(tripsP), tripsPMe=(sd(tripsP)/sqrt(5))*1.96,
+                                           FtimePM=mean(FtimeP), FtimePMe=(sd(FtimeP)/sqrt(5))*1.96,
+                                           Kg_TOTPM=mean(Kg_TOTP), Kg_TOTPMe=(sd(Kg_TOTP)/sqrt(5))*1.96,
+                                           E_TOTPM=mean(E_TOTP), E_TOTPMe=(sd(E_TOTP)/sqrt(5))*1.96)
+
+dM = as.data.frame(dM)
+#export data
+dM[is.na(dM)] = 0
+write.table(dM, 'otbLICactivity.csv', sep=';', dec=',',  row.names=FALSE)
+
+##plots
+themePlots = theme(axis.text.x = element_text(angle = 90, hjust=1, vjust=0.5, size=10),
+                   axis.text.y = element_text(size=11),
+                   axis.title = element_text(size=13),
+                   plot.title=element_text(size=14,hjust=0.95, vjust=0.25, margin=margin(t=40,b=-30)))
+#tripsP
+ggplot(dM %>% mutate(Code2 = fct_reorder(Code, desc(E_TOTPM))) , aes(y=tripsPM, x=Code2)) + 
+  geom_bar(color = 'Black', fill='Blue', alpha=0.5, width=.75, position="dodge", stat="identity")+
+  geom_errorbar(aes(ymin=tripsPM-tripsPMe, ymax=tripsPM+tripsPMe), width=.5)+
+  theme_bw()+
+  ggtitle('D?as de pesca dentro de LIC')+xlab('Embarcaciones')+ylab('%')+ylim(c(-3,100))+
+  theme(axis.text.x = element_text(angle = 90, hjust=0.95), 
+        plot.title=element_text( hjust=0.95, vjust=0.25, margin=margin(t=40,b=-30)))
+#FtimeP
+tiff(file="Ftime_inLIC.tiff",  height=12, width = 20, units=('cm'), res=300)
+ggplot(dM %>% mutate(Code2 = fct_reorder(VesselCode2, desc(E_TOTPM))) , aes(y=FtimePM, x=Code2)) + 
+  geom_bar(color = 'Black', fill='#2B50AA', alpha=0.75, width=.75, position="dodge", stat="identity")+
+  geom_errorbar(aes(ymin=FtimePM-FtimePMe, ymax=FtimePM+FtimePMe), width=.5)+
+  theme_bw()+
+  ggtitle('Porcentaje de tiempo de pesca anual dentro del LIC')+xlab('Embarcaciones')+ylab('Horas anuales (%)')+ylim(c(-3,100))+
+  themePlots
+dev.off()
+  
+#landingsP
+tiff(file="Landings_inLIC.tiff",  height=12, width = 20, units=('cm'), res=300)
+ggplot(dM %>% mutate(Code2 = fct_reorder(VesselCode2, desc(E_TOTPM))) , aes(y=Kg_TOTPM, x=Code2)) + 
+  geom_bar(color = 'Black', fill='#DB2B39', alpha=0.75, position="dodge", stat="identity")+
+  geom_errorbar(aes(ymin=Kg_TOTPM-Kg_TOTPMe, ymax=Kg_TOTPM+Kg_TOTPMe), width=.5)+
+  theme_bw()+
+  ggtitle('Porcentaje de desembarcos anuales dentro del LIC')+xlab('Embarcaciones')+ylab('Kg anuales (%)')+ylim(c(-3,100))+
+  themePlots
+dev.off()
+
+#RevenuesP
+tiff(file="Revenues_inLIC.tiff",  height=12, width = 20, units=('cm'), res=300)
+ggplot(dM %>% mutate(Code2 = fct_reorder(VesselCode2, desc(E_TOTPM))) , aes(y=E_TOTPM, x=Code2)) + 
+  geom_bar(color = 'Black', fill='#23CE6B', alpha=0.75, position="dodge", stat="identity")+
+  geom_errorbar(aes(ymin=E_TOTPM-E_TOTPMe, ymax=E_TOTPM+E_TOTPMe), width=.5)+
+  theme_bw()+
+  ggtitle('Porcentaje de ingresos anuales dentro del LIC')+xlab('Embarcaciones')+ylab('Euros anuales (%)')+ylim(c(-3,100))+
+  themePlots
+dev.off()
+
+#FtimeLIC
+ggplot(dM %>% mutate(Code2 = fct_reorder(Code, desc(E_TOTPM))) , aes(y=FtimeLICM, x=Code2)) + 
+  geom_bar(color = 'Black', fill='Blue', alpha=0.5, width=.75, position="dodge", stat="identity")+
+  geom_errorbar(aes(ymin=FtimeLICM-FtimeLICMe, ymax=FtimeLICM+FtimeLICMe), width=.5)+
+  theme_bw()+
+  ggtitle('Tiempo de pesca dentro de LIC')+xlab('Embarcaciones')+ylab('Horas de pesca')+
+  theme(axis.text.x = element_text(angle = 90, hjust=0.95), 
+        plot.title=element_text( hjust=0.95, vjust=0.25, margin=margin(t=40,b=-30)))
+
+#Kg_TOTLIC
+ggplot(dM %>% mutate(Code2 = fct_reorder(Code, desc(E_TOTPM))) , aes(y=Kg_TOTLICM, x=Code2)) + 
+  geom_bar(color = 'Black', fill='Red', alpha=0.5, width=.75, position="dodge", stat="identity")+
+  geom_errorbar(aes(ymin=Kg_TOTLICM-Kg_TOTLICMe, ymax=Kg_TOTLICM+Kg_TOTLICMe), width=.5)+
+  theme_bw()+
+  ggtitle('Desembarcos dentro de LIC')+xlab('Embarcaciones')+ylab('Kg')+
+  theme(axis.text.x = element_text(angle = 90, hjust=0.95), 
+        plot.title=element_text( hjust=0.95, vjust=0.25, margin=margin(t=40,b=-30)))
+
+#E_TOTLIC
+ggplot(dM %>% mutate(Code2 = fct_reorder(Code, desc(E_TOTPM))) , aes(y=E_TOTLICM, x=Code2)) + 
+  geom_bar(color = 'Black', fill='Green', alpha=0.5, width=.75, position="dodge", stat="identity")+
+  geom_errorbar(aes(ymin=E_TOTLICM-E_TOTLICMe, ymax=E_TOTLICM+E_TOTLICMe), width=.5)+
+  theme_bw()+
+  ggtitle('Tiempo de pesca dentro de LIC')+xlab('Embarcaciones')+ylab('€')+
+  theme(axis.text.x = element_text(angle = 90, hjust=0.95), 
+        plot.title=element_text( hjust=0.95, vjust=0.25, margin=margin(t=40,b=-30)))
+###############################################################################################################
+#ANUAL MEAN FOR MAPS
+setwd('/Users/jsala/ownCloud/GIS/Life - Intemares/CommercialFishing/OTB/')
+rm(list=ls())
+m = read.table('otb_vmsintfFtCa_1721_1x1kmsq.csv', sep=',', dec='.', header=T)
+m$year = as.factor(m$year)
+m$id = as.factor(m$id)
+m$WKTgeom = as.factor(m$WKTgeom)
+
+query3 = 'select *, st_AsText(geom) as "WKTgeom" from "1x1kmsqCDC"'
+kmsq = dbGetQuery(con, query3)
+kmsq = kmsq %>% select(1,7)
+kmsq$id = as.factor(kmsq$id)
+kmsq$WKTgeom = as.factor(kmsq$WKTgeom)
+
+kmsqdf = kmsq
+kmsqdf$year = 2017
+
+for (y in c(2018:2021)){
+  print(y)
+  df = kmsq
+  df$year = y
+  kmsqdf = rbind(kmsqdf, df)
+}
+
+d = left_join(kmsqdf, m, by = c("id", "WKTgeom", "year"))
+d[is.na(d)]=0
+write.csv(d %>% filter(year==2020), 'otbActivity_2020.csv', sep=';', dec=',')
+dM = d %>% group_by(id, WKTgeom) %>% summarize(FtimeM = mean(Ftime),
+                                                Kg_TOTM = mean(Kg_TOT),
+                                                E_TOTM = mean(E_TOT))
+write.csv(dM, 'otbActivity_1721_mean.csv')
+
+##trackCount mean
+setwd('/Users/jsala/ownCloud/GIS/Life - Intemares/CommercialFishing/OTB/')
+t = read.table('otb_trackCount.csv', sep=',', dec='.', header=T)
+t = t %>% rename(year = 'extract', WKTgeom = 'st_astext', tracks='count.1')
+t$year = as.factor(t$year)
+t$id = as.factor(t$year)

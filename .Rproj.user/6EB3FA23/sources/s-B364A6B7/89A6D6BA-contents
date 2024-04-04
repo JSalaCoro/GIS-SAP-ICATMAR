@@ -1,0 +1,85 @@
+library(tidyverse)
+library(dplyr)
+library(RPostgreSQL)
+library("RSQLite")
+library(stringr)
+library(pkgbuild)
+library(devtools)
+library(ggplot2)
+
+rm(list=ls())
+
+setwd('/home/joan/Desktop/ICM_SAP/Base_de_Dades/Backups/VMS/20221102_vms_medesp_2022-12T/interpolation/')
+#1. download raw vms data
+db = 'SAP_Test'
+host_db = 'saptest.cmima.csic.es'
+db_port = '5432'
+db_user = 'joan'
+con <- dbConnect(RPostgres::Postgres(), dbname = db, host=host_db, port=db_port, user=db_user, password='Jo4nSAPO')
+#query = 'select *, substr("CFR",4,12) AS "VessCode", to_char(CAST("date2" AS Date), \'DD/MM/YYYY\') as "Date2", CAST("date2" AS Time) AS "Time" from "tmp_vms" 
+query = 'select *, substr("CFR",4,12) AS "VessCode", to_char(CAST("FcIval"::date AS Date), \'DD/MM/YYYY\') as "Date2", CAST("FcIval" AS Time) AS "Time" from vms."tmp_vms_2022-34T"'
+t = dbGetQuery(con, query)
+tSplitLen = nrow(t)/2
+t1 = t[0:tSplitLen,]
+t2 = t[(tSplitLen+1):(tSplitLen*2),]
+
+write.csv(t, 'tmp_vms_2022-34T.csv') ##MUST BE WITH QUOTES OTHERWISE VMSBASE DOESN'T LIKE IT
+write.csv(t1, 'tmp_vms_2022-34T_1.csv') ##MUST BE WITH QUOTES OTHERWISE VMSBASE DOESN'T LIKE IT
+write.csv(t2, 'tmp_vms_2022-34T_2.csv')
+
+ggplot(t)+
+  geom_histogram(aes(x=Velocidad), binwidth = 0.5)
+
+rm(con, db, host_db, db_port, db_user)
+#check: /home/joan/Desktop/ICM_SAP/GIS/VMSinterpolation/querys.sql
+
+#2. interpolation interpolate using vmsbase
+#gui_main()
+
+#3. extract interpolated table. And transform necessary columns to appropriate units.
+db2 = 'tmp_vms_2022-12T.vms.sqlite'
+con2 <- dbConnect(RSQLite::SQLite(), db2)
+dbListTables(con2)
+#check points in db
+ping = dbGetQuery(con2, "select count(*) from ping")
+warn = dbGetQuery(con2, "select * from warn")
+#get interpolated points table
+int = dbGetQuery(con2, "select * from intrp" )
+
+#Transform columns
+#VesselCode
+int$CFR = paste0('ESP',substr(str_pad(int$I_NCEE, 12, pad='0'), 4, 12))
+#vmsBase dates stored as number of days since 1 january 1970
+int$DATE_UTC = as.POSIXct(int$DATE*24*60*60, origin = "1970-01-01", tz="UTC") #transform numeric date into datetime format 
+int$DATE_chr = strftime(int$DATE_UTC, tz='UTC') #remove time zone and keep data without timezone but with same values as UTC
+int = int %>% select(-DATE_UTC)
+#Transform speed from km/h to knots. vmsBase speed is automatically transformed to km/h.
+int$SPEED = int$SPE/1.852
+
+ggplot(int)+                                                                                                                                                                                                                                                                                                                                      
+  geom_histogram(aes(x=SPE), binwidth = 0.5)+
+  xlim(-1,20)+
+  geom_histogram(aes(x=spe2), binwith=0.5, fill='red', alpha=0.5)
+
+#Checking interpolation with a OTB and a PS vessel
+intESP000026756 = int[int$Code == 'ESP000026756',]
+write.csv(intESP000026756, 'ESP000026756_check/tmp_vmsint_2022-12T_ESP000026756_noharbor_UTC.csv')
+intESP000027171 = int[int$Code == 'ESP000027171',]
+write.csv(intESP000027171, 'tmp_vmsint_2022-12T_ESP000027171_noharbor_UTC.csv')
+
+#4.Import final interpolated data to ICATMAR databases. 
+#4.1. Directly from R
+###SAP_Test db connection
+db = 'SAP_Test'
+host_db = 'saptest.cmima.csic.es'
+db_port = '5432'
+db_user = 'joan'
+db_pwd = 'Jo4nSAPO'
+con <- dbConnect(RPostgres::Postgres(), dbname = db, host=host_db, port=db_port, user=db_user, password=db_pwd, options="-c search_path=vms")
+dbWriteTable(con, "tmp_vmsint_2022-12T", int[0:100,], row.names=FALSE, append=TRUE)
+#write some rows from R might be useful to directly create the table in the database that afterwards can be filled with the python script.
+#remove 100 inserted rows before using python script!
+
+#4.2. Export csv. When dataset is too big, R crashes so python script with psycopg2 should be used
+write.csv(int, 'tmp_vmsint_2022-12T_noHarbor_date.csv', row.names=FALSE, quote=FALSE)
+

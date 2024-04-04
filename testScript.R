@@ -1,5 +1,0 @@
-print('holi')
-
-aaaaaaaaaaaaaaaaaa
-
-bbbbbbbbbbbbbbbbbbbbb

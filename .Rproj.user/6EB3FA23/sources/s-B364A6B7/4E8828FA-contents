@@ -1,0 +1,30 @@
+library(ggplot2)
+library(RPostgres)
+library(dplyr)
+library(tidyr)
+library(scales)
+library(forcats)
+library(sf)
+library(vmsBase)
+
+setwd('/home/joan/Desktop/ICM_SAP/Base_de_Dades/Backups/VMS/20221102_vms_medesp_2022-12T/')
+rm(list=ls())
+
+drv <- dbDriver("PostgreSQL")
+db = 'SAP_Test'
+host_db = 'sap.cmima.csic.es'
+db_port = '5432'
+db_user = 'joan'
+pwd = 'Jo4nSAPO'
+con <- dbConnect(RPostgres::Postgres(), dbname = db, host=host_db, port=db_port, user=db_user, password=pwd)
+
+tmpvmsintCountQuery = 'select "GearMainCode", cast("DATE" as Date), count(distinct(t1."CFR")) as "Nvessel", count(*) as "Nping" from "tmp_vmsint" t1
+                    JOIN "vessel" ON "vessel"."Id" = t1."VesselId"
+                    group by "GearMainCode", cast("DATE" as Date)'
+tmpvmsintCount = dbGetQuery(con, tmpvmsintCountQuery)
+
+ggplot(tmpvmsintCount %>% filter(GearMainCode != 'OTB'), aes(x=DATE, y=as.numeric(Nvessel), color=GearMainCode))+
+  geom_line()
+
+ggplot(tmpvmsintCount %>% filter(GearMainCode != 'OTB'), aes(x=DATE, y=as.numeric(Nping), color=GearMainCode))+
+  geom_line()

@@ -1,0 +1,161 @@
+library(ggplot2)
+library(RPostgres)
+library(dplyr)
+library(tidyr)
+library(scales)
+library(forcats)
+library(sf)
+library(vmsBase)
+
+setwd('/home/joan/Desktop/ICM_SAP/Base_de_Dades/Backups/VMS/20221102_vms_medesp_2022-12T/')
+rm(list=ls())
+
+drv <- dbDriver("PostgreSQL")
+db = 'SAP_Test'
+host_db = 'saptest.cmima.csic.es'
+db_port = '5432'
+db_user = 'joan'
+pwd = 'Jo4nSAPO'
+con <- dbConnect(RPostgres::Postgres(), dbname = db, host=host_db, port=db_port, user=db_user, password=pwd)
+
+setwd('/home/joan/Desktop/ICM_SAP/GIS/VMSinterpolation/202305_vmsbase_duplicatesRemoval/')
+##1. check variables 
+query = 'select * from vms."tmp_vmsint" t1
+JOIN "vessel" ON "vessel"."Id" = t1."VesselId"
+where "GearMainCode" = \'OTB\''
+d = dbGetQuery(con, query)
+
+hist(d$SPEED/1.852, xlim=c(0,40))
+
+ggplot(d,aes(x=HEADING))+
+  geom_histogram(binwidth = 0.5)+
+  xlim(c(0,360))
+
+query4 = 'select * from vms."tmp_vms2022-12T" t1
+JOIN "vessel" ON "vessel"."Id" = t1."VesselId"
+where "GearMainCode" = \'OTB\''
+d4 = dbGetQuery(con, query4)
+
+ggplot(d4,aes(x=SPEED))+
+  geom_histogram(binwidth = 0.5)+
+  xlim(c(0,360))
+
+query2 = 'select * from vms."vmsint" t1
+JOIN "vessel" ON "vessel"."Id" = t1."VesselId"
+where "GearMainCode" = \'OTB\' and extract(\'year\' from "Date") =2011 '
+d2 = dbGetQuery(con, query2)
+
+ggplot(d2,aes(x=Speed))+
+  geom_histogram(binwidth = 0.5)+
+  xlim(c(-2,15))
+
+d3 = read.csv('/home/joan/Desktop/ICM_SAP/GIS/SaraParadis/vmsint_otb_2019_64600_64500_64410.csv')
+ggplot(d3,aes(x=Speed))+
+  geom_histogram(binwidth = 0.5)+
+  xlim(c(-2,15))
+
+##2. check number of pings/vessels historically. 
+##compare historical with new vmsint and vms
+##2.1. INTERPOLATED POINTS
+vmsintCountQuery = 'select "GearMainCode", cast("Date" as Date), count(distinct(t1."Code")) as "Nvessel", count(*) as "Nping" from vms."vmsint" t1
+                    JOIN "vessel" ON "vessel"."Id" = t1."VesselId"
+                    group by "GearMainCode", cast("Date" as Date)'
+vmsintCount = dbGetQuery(con, vmsintCountQuery)
+
+ggplot(vmsintCount %>% filter(GearMainCode != 'OTB'), aes(x=Date, y=as.numeric(Nvessel), color=GearMainCode))+
+  geom_line()
+
+ggplot(vmsintCount %>% filter(GearMainCode != 'OTB'), aes(x=Date, y=as.numeric(Nping), color=GearMainCode))+
+  geom_line()
+
+#temporal table with vmsbase duplicates removed
+vmsintCount2022Query = 'select "GearMainCode", cast("Date" as Date) as "Date", count(distinct(t1."Code")) as "Nvessel", count(*) as "Nping" from vms."vmsint2022" t1
+                    JOIN "vessel" ON "vessel"."Id" = t1."VesselId"
+                    group by "GearMainCode", cast("Date" as Date)'
+vmsintCount2022 = dbGetQuery(con, vmsintCount2022Query)
+
+vmsintCountTotal = rbind(vmsintCount, vmsintCount2022)
+
+#table with vmsbase duplicates (P_INT=0 and SPEED=0 most of them)
+vmsintCount2022_tmp_Query = 'select "GearMainCode", cast("DATE2" as Date) as "Date", count(distinct(t1."CFR")) as "Nvessel", count(*) as "Nping" from vms."tmp_vmsint_2022" t1
+                    JOIN "vessel" ON "vessel"."Id" = t1."VesselId"
+                    group by "GearMainCode", cast("DATE2" as Date)'
+vmsintCount2022_tmp = dbGetQuery(con, vmsintCount2022_tmp_Query)
+
+vmsintCountTotal_tmp = rbind(vmsintCount, vmsintCount2022_tmp)
+
+ggplot(vmsintCountTotal %>% filter(Date > '2021-01-01' & Date < '2022-12-31'), aes(x=Date, y=as.numeric(Nvessel), color=GearMainCode))+
+  geom_line()+
+  geom_point()
+ggplot(vmsintCountTotal %>% filter(Date > '2004-01-01' & Date < '2022-12-31'), aes(x=Date, y=as.numeric(Nping), color=GearMainCode))+
+  geom_line(lwd=0.05)+
+  geom_point(size=0.5)+ ylim(0,100000) + ggtitle('P_INT=0 or P_INT=1, vmsbase Duplicates removed')
+ggplot(vmsintCountTotal_tmp %>% filter(Date > '2004-01-01' & Date < '2022-12-31'), aes(x=Date, y=as.numeric(Nping), color=GearMainCode))+
+  geom_line(lwd=0.05)+
+  geom_point(size=0.5)+ ylim(0,100000) + ggtitle('P_INT=0 or P_INT=1, vmsbase NO Duplicates removed')
+
+vmsintCountTotal %>% mutate(yearMonth = as.yearmon(Date)) %>%
+  group_by(yearMonth, GearMainCode) %>% summarize(NvesselM=mean(Nvessel), Nping=mean)
+
+##2.2. RAW VMS check raw VMS
+##check number of pings/vessels historically
+vmsCountQuery = 'select "GearMainCode", cast("Date" as Date), count(distinct(t1."Code")) as "Nvessel", count(*) as "Nping" from vms."vmsint" t1
+                    JOIN "vessel" ON "vessel"."Id" = t1."VesselId"
+                    where "P_INT" = 0
+                    group by "GearMainCode", cast("Date" as Date)'
+vmsCount = dbGetQuery(con, vmsCountQuery)
+
+ggplot(vmsCount, aes(x=Date, y=as.numeric(Nvessel)))+
+  geom_line()
+
+ggplot(vmsCount, aes(x=Date, y=as.numeric(Nping)))+
+  geom_line()
+
+#table with duplicates
+vmsCount2022_tmp_Query = 'select "GearMainCode", cast("DATE2" as Date) as "Date", count(distinct(t1."CFR")) as "Nvessel", count(*) as "Nping" from vms."tmp_vmsint_2022" t1
+                    JOIN "vessel" ON "vessel"."Id" = t1."VesselId"
+                    where "P_INT" = 0
+                    group by "GearMainCode", cast("DATE2" as Date)'
+vmsCount2022_tmp = dbGetQuery(con, vmsCount2022_tmp_Query)
+vmsCountTotal_tmp = rbind(vmsCount, vmsCount2022_tmp)
+
+ggplot(vmsCountTotal_tmp %>% filter(Date > '2004-01-01' & Date < '2022-12-31'), aes(x=Date, y=as.numeric(Nping), color= GearMainCode))+
+  geom_line(lwd=0.05)+
+  geom_point(size=0.5) + ggtitle('Raw VMS (P_INT=0) vmsbase NO Duplicates removed')
+
+#table without duplicates
+vmsCount2022Query = 'select "GearMainCode", cast("Date" as Date) as "Date", count(distinct(t1."Code")) as "Nvessel", count(*) as "Nping" from vms."vmsint2022" t1
+                    JOIN "vessel" ON "vessel"."Id" = t1."VesselId"
+                    where "P_INT" = 0
+                    group by "GearMainCode", cast("Date" as Date)'
+vmsCount2022 = dbGetQuery(con, vmsCount2022Query)
+vmsCountTotal = rbind(vmsCount, vmsCount2022)
+
+ggplot(vmsCountTotal %>% filter(Date > '2004-01-01' & Date < '2022-12-31'), aes(x=Date, y=as.numeric(Nping), color= GearMainCode))+
+  geom_line(lwd=0.05)+
+  geom_point(size=0.5) + ggtitle('Raw VMS (P_INT=0) vmsbase Duplicates removed')
+
+##2.3. COMPARE INTERPOLATED FISHING POINTS
+##compare historical with new vmsint and vms
+vmsintfCountQuery = 'select "GearMainCode", cast("Date" as Date), count(distinct(t1."Code")) as "Nvessel", count(*) as "Nping" from vms."vmsint" t1
+                    JOIN "vessel" ON "vessel"."Id" = t1."VesselId"
+                    where "Fishing" = True
+                    group by "GearMainCode", cast("Date" as Date)'
+vmsintfCount = dbGetQuery(con, vmsintfCountQuery)
+
+#temporal table with vmsbase duplicates removed
+vmsintfCount2022Query = 'select "GearMainCode", cast("Date" as Date) as "Date", count(distinct(t1."Code")) as "Nvessel", count(*) as "Nping" from vms."vmsint2022" t1
+                    JOIN "vessel" ON "vessel"."Id" = t1."VesselId"
+                    where "Fishing" = True
+                    group by "GearMainCode", cast("Date" as Date)'
+vmsintfCount2022 = dbGetQuery(con, vmsintfCount2022Query)
+
+vmsintfCountTotal = rbind(vmsintfCount, vmsintfCount2022)
+
+ggplot(vmsintfCountTotal %>% filter(Date > '2004-01-01' & Date < '2022-12-31'), aes(x=Date, y=as.numeric(Nping), color=GearMainCode))+
+  geom_line(lwd=0.05)+
+  geom_point(size=0.5) + ggtitle('P_INT=1, Fishing=True, vmsbase duplicates removed')
+ggplot(vmsintfCountTotal %>% filter(GearMainCode=='OTB',Date > '2004-01-01' & Date < '2022-12-31'), aes(x=Date, y=as.numeric(Nvessel), color=GearMainCode))+
+  geom_line(lwd=0.05)+
+  geom_point(size=0.5) + ggtitle('P_INT=1, Fishing=True, vmsbase duplicates removed, Fishing=True')
+

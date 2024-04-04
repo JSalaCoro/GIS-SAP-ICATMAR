@@ -1,0 +1,641 @@
+library(dplyr)
+library(tidyr)
+library(scales)
+library(ggplot2)
+library(RPostgreSQL)
+rm(list=ls())
+setwd('/home/joan/Desktop/ICM_SAP/GIS/spillover_MAPareas/results_cuttedAreas/')
+theme_axis_style = theme(axis.text.x = element_text(size=11,angle = 45, hjust=0.95),
+                         axis.text=element_text(size=11),
+                         axis.title = element_text(size=11),
+                         strip.text.x = element_text(size = 11),
+                         legend.title = element_blank())
+
+db = 'SAP_Test'
+host_db = 'sap.cmima.csic.es'
+db_port = '5432'
+db_user = 'joan'
+pwd='Jo4nSAPO'
+conProd <- dbConnect(RPostgres::Postgres(), dbname = db, host=host_db, port=db_port, user=db_user, password = pwd)
+
+db = 'joanLocalhost'
+host_db = 'localhost'
+db_port = '5433'
+db_user = 'postgres'
+pwd='jnscrm28'
+conLocal <- dbConnect(RPostgres::Postgres(), dbname = db, host=host_db, port=db_port, user=db_user, password = pwd)
+
+##1. BUFFER METHOD
+query = 'select * from "closedAreasCatSpill2022"'
+s = dbGetQuery(conLocal, query)
+#s$year = as.factor(s$year)
+
+s$id_area = as.factor(s$id_area)
+s$name = as.factor(s$name)
+s$closed = as.factor(s$closed)
+s$gsa = as.factor(s$gsa)
+s$buffer = as.character(s$buffer)
+#s[is.na(s$buffer),8] = 'IN'
+s$buffer = as.factor(s$buffer)
+
+s$year = as.numeric(s$year)
+s$closed2 = NA
+#b$closed2 = 'Before'
+#escamarla palamos
+s[s$id_area == 19 & s$year > 2017 & s$year < 2022, 38] = 'After'
+s[s$id_area == 19 & s$year > 2012 & s$year < 2017, 38] = 'Before'
+
+#repoblacio blanes-palamos
+#b[b$id_area == 21 & b$year > 2017, 28] = 'After'
+s[s$id_area == 21 & s$year > 2017 & s$year < 2022, 38] = 'After'
+s[s$id_area == 21 & s$year > 2012 & s$year < 2017, 38] = 'Before'
+
+#lluc Roses
+#b[b$id_area == 20 & b$year > 2013, 28] = 'After'
+s[s$id_area == 20 & s$year > 2013 & s$year < 2019, 38] = 'After'
+s[s$id_area == 20 & s$year > 2007 & s$year < 2013, 38] = 'Before'
+
+s$year = as.factor(s$year)
+s$closed2 = as.factor(s$closed2)
+
+s$name2 = NA
+s[s$id_area==19,39] = 'Palamós area'
+s[s$id_area==20,39] = 'Roses area'
+s[s$id_area==21,39] = 'Blanes area'
+s$name2 = as.factor(s$name2)
+
+s %>% filter(id_area==19) %>% select(closed2, year, name2)
+
+#write.table(s, 'closedAreasCatSpill2022.csv', row.names=FALSE, sep=';', dec=',')
+#general Ftime reduction
+s$buffer = factor(s$buffer, levels=c('0m', '500m', '1000m', '2000m', '3000m', '5000m'))
+id_areaCat = 20
+ggplot(s %>% filter(buffer=='0m' & id_area==id_areaCat), aes(x=year, y =Ftime, group=name2))+ 
+  geom_line()+
+  theme_bw()+
+  theme_axis_style+
+  geom_vline(xintercept='2013', linetype='dashed', color='black', size=0.5)+
+  annotate("rect", xmin='2008', xmax='2013', ymin=-Inf, ymax=Inf, fill='#F8766D', alpha=0.25)+
+  annotate("rect", xmin='2013', xmax='2018', ymin=-Inf, ymax=Inf, fill='#00BFC4', alpha=0.25)+
+  ggtitle(s[s$buffer=='0m' & s$id_area==id_areaCat,39])+ ylim(c(0,700)) + ylab('Fishing time (h)')
+ggsave('area20FtimeReduction.tiff', width=12, height=9, units='cm')
+
+#Variables over years
+s$buffer = factor(s$buffer, levels=c('0m', '500m', '1000m', '2000m', '3000m', '5000m'))
+s$name2 = factor(s$name2, levels=c('Roses area', 'Palamós area', 'Blanes area'))
+setwd('/home/joan/Desktop/ICM_SAP/GIS/spillover_MAPareas/results_cuttedAreas/bufferMethod/varTotalYears/')
+sps= list('Ftime', 'Kg_TOT', 'Kg_HKE', 'Kg_NEP','Kg_mul', 'Kg_rap', 'Kg_EOI', 'Kg_WHB', 'Kg_DPS', 'Kg_tri', 'Kg_lep', 'Kg_BRF', 'Kg_phy', 'Kg_ARY')
+
+for (sp in sps) {
+  print(sp)
+  ggplot(s, aes_string(x='year', y=paste0(sp), group='buffer', color='buffer'))+ 
+    geom_line(size=0.75)+
+    facet_grid(rows = vars(name2))+
+    scale_color_brewer(palette="Dark2")+
+    theme_bw()+
+    theme_axis_style+
+    theme(strip.text.y = element_text(size=12))+
+    geom_vline(data=filter(s, id_area==19 |id_area==21), aes(xintercept='2017'), linetype='dashed', color='black', size=0.5)+
+    geom_vline(data=filter(s, id_area==20), aes(xintercept='2013'), linetype='dashed', color='black', size=0.5)+
+    ylab(paste0('Landings ', substring(sp, 4,6), ' (kg)'))
+  ggsave(paste0(sp,'.png'), width=12, height=14, units='cm')
+}
+
+#LPUE over years
+setwd('/home/joan/Desktop/ICM_SAP/GIS/spillover_MAPareas/results_cuttedAreas/bufferMethod/varFtimeYears/')
+sps= list('Ftime', 'Kg_TOT', 'Kg_HKE', 'Kg_NEP','Kg_mul', 'Kg_rap', 'Kg_EOI', 'Kg_WHB', 'Kg_DPS', 'Kg_tri', 'Kg_lep', 'Kg_BRF', 'Kg_phy', 'Kg_ARY')
+for (sp in sps) {
+  print(sp)
+  ggplot(s, aes_string(x='year', y=paste0(sp, '/Ftime'), group='buffer', color='buffer'))+ 
+    geom_line(size=0.75)+
+    facet_grid(rows = vars(name2))+
+    scale_color_brewer(palette="Dark2")+
+    theme_bw()+
+    theme_axis_style+
+    theme(strip.text.y = element_text(size=11),
+          legend.text = element_text(size=11),
+          axis.title.x = element_blank())+
+    geom_vline(data=filter(s, id_area==19 |id_area==21), aes(xintercept='2017'), linetype='dashed', color='black', size=0.5)+
+    geom_vline(data=filter(s, id_area==20), aes(xintercept='2013'), linetype='dashed', color='black', size=0.5)+
+    ylab(paste0('LPUE (kg/h)'))+
+    ggtitle(substring(sp, 4,6))
+  ggsave(paste0(sp,'.png'), width=12, height=14, units='cm')
+}
+
+#barplots before/after
+sBA = s %>% filter(!is.na(closed2)) %>% group_by(closed2, id_area, name2, area, buffer) %>% summarize(
+                                                                  FtimeM=mean(Ftime),  FtimeMe=(sd(Ftime)/sqrt(n())*1.96),
+                                                                  #totalKg
+                                                                  Kg_TOTM=mean(Kg_TOT), Kg_TOTMe=(sd(Kg_TOT)/sqrt(n())*1.96),
+                                                                 Kg_HKEM=mean(Kg_HKE), Kg_HKEMe=(sd(Kg_HKE)/sqrt(n())*1.96),
+                                                                 Kg_NEPM=mean(Kg_NEP), Kg_NEPMe=(sd(Kg_NEP)/sqrt(n())*1.96),
+                                                                 Kg_mulM=mean(Kg_mul), Kg_mulMe=(sd(Kg_mul)/sqrt(n())*1.96),
+                                                                 Kg_rapM=mean(Kg_rap), Kg_rapMe=(sd(Kg_rap)/sqrt(n())*1.96),
+                                                                 Kg_EOIM=mean(Kg_EOI), Kg_EOIMe=(sd(Kg_EOI)/sqrt(n())*1.96),
+                                                                 Kg_WHBM=mean(Kg_WHB), Kg_WHBMe=(sd(Kg_WHB)/sqrt(n())*1.96),
+                                                                 Kg_DPSM=mean(Kg_DPS), Kg_DPSMe=(sd(Kg_DPS)/sqrt(n())*1.96),
+                                                                 Kg_triM=mean(Kg_tri), Kg_triMe=(sd(Kg_tri)/sqrt(n())*1.96),
+                                                                 Kg_lepM=mean(Kg_lep), Kg_lepMe=(sd(Kg_lep)/sqrt(n())*1.96),
+                                                                 Kg_BRFM=mean(Kg_BRF), Kg_BRFMe=(sd(Kg_BRF)/sqrt(n())*1.96),
+                                                                 Kg_phyM=mean(Kg_phy), Kg_phyMe=(sd(Kg_phy)/sqrt(n())*1.96),
+                                                                 Kg_ARYM=mean(Kg_ARY), Kg_ARYMe=(sd(Kg_ARY)/sqrt(n())*1.96),
+                                                                 #totalE
+                                                                 E_TOTM=mean(E_TOT), E_TOTMe=(sd(E_TOT)/sqrt(n())*1.96),
+                                                                 E_HKEM=mean(E_HKE), E_HKEMe=(sd(E_HKE)/sqrt(n())*1.96),
+                                                                 E_NEPM=mean(E_NEP), E_NEPMe=(sd(E_NEP)/sqrt(n())*1.96),
+                                                                 E_mulM=mean(E_mul), E_mulMe=(sd(E_mul)/sqrt(n())*1.96),
+                                                                 E_rapM=mean(E_rap), E_rapMe=(sd(E_rap)/sqrt(n())*1.96),
+                                                                 E_EOIM=mean(E_EOI), E_EOIMe=(sd(E_EOI)/sqrt(n())*1.96),
+                                                                 E_WHBM=mean(E_WHB), E_WHBMe=(sd(E_WHB)/sqrt(n())*1.96),
+                                                                 E_DPSM=mean(E_DPS), E_DPSMe=(sd(E_DPS)/sqrt(n())*1.96),
+                                                                 E_triM=mean(E_tri), E_triMe=(sd(E_tri)/sqrt(n())*1.96),
+                                                                 E_lepM=mean(E_lep), E_lepMe=(sd(E_lep)/sqrt(n())*1.96),
+                                                                 E_BRFM=mean(E_BRF), E_BRFMe=(sd(E_BRF)/sqrt(n())*1.96),
+                                                                 E_phyM=mean(E_phy), E_phyMe=(sd(E_phy)/sqrt(n())*1.96),
+                                                                 E_ARYM=mean(E_ARY), E_ARYMe=(sd(E_ARY)/sqrt(n())*1.96),
+                                                                 #KgbyFtime
+                                                                 Kg_TOTFM=mean(Kg_TOT/Ftime), Kg_TOTFMe=(sd(Kg_TOT/Ftime)/sqrt(n())*1.96),
+                                                                 Kg_HKEFM=mean(Kg_HKE/Ftime), Kg_HKEFMe=(sd(Kg_HKE/Ftime)/sqrt(n())*1.96),
+                                                                 Kg_NEPFM=mean(Kg_NEP/Ftime), Kg_NEPFMe=(sd(Kg_NEP/Ftime)/sqrt(n())*1.96),
+                                                                 Kg_mulFM=mean(Kg_mul/Ftime), Kg_mulFMe=(sd(Kg_mul/Ftime)/sqrt(n())*1.96),
+                                                                 Kg_rapFM=mean(Kg_rap/Ftime), Kg_rapFMe=(sd(Kg_rap/Ftime)/sqrt(n())*1.96),
+                                                                 Kg_EOIFM=mean(Kg_EOI/Ftime), Kg_EOIFMe=(sd(Kg_EOI/Ftime)/sqrt(n())*1.96),
+                                                                 Kg_WHBFM=mean(Kg_WHB/Ftime), Kg_WHBFMe=(sd(Kg_WHB/Ftime)/sqrt(n())*1.96),
+                                                                 Kg_DPSFM=mean(Kg_DPS/Ftime), Kg_DPSFMe=(sd(Kg_DPS/Ftime)/sqrt(n())*1.96),
+                                                                 Kg_triFM=mean(Kg_tri/Ftime), Kg_triFMe=(sd(Kg_tri/Ftime)/sqrt(n())*1.96),
+                                                                 Kg_lepFM=mean(Kg_lep/Ftime), Kg_lepFMe=(sd(Kg_lep/Ftime)/sqrt(n())*1.96),
+                                                                 Kg_BRFFM=mean(Kg_BRF/Ftime), Kg_BRFFMe=(sd(Kg_BRF/Ftime)/sqrt(n())*1.96),
+                                                                 Kg_phyFM=mean(Kg_phy/Ftime), Kg_phyFMe=(sd(Kg_phy/Ftime)/sqrt(n())*1.96),
+                                                                 Kg_ARYFM=mean(Kg_ARY/Ftime), Kg_ARYFMe=(sd(Kg_ARY/Ftime)/sqrt(n())*1.96),
+                                                                 #EbyFtime
+                                                                 E_TOTFM=mean(E_TOT/Ftime), E_TOTFMe=(sd(E_TOT/Ftime)/sqrt(n())*1.96),
+                                                                 E_HKEFM=mean(E_HKE/Ftime), E_HKEFMe=(sd(E_HKE/Ftime)/sqrt(n())*1.96),
+                                                                 E_NEPFM=mean(E_NEP/Ftime), E_NEPFMe=(sd(E_NEP/Ftime)/sqrt(n())*1.96),
+                                                                 E_mulFM=mean(E_mul/Ftime), E_mulFMe=(sd(E_mul/Ftime)/sqrt(n())*1.96),
+                                                                 E_rapFM=mean(E_rap/Ftime), E_rapFMe=(sd(E_rap/Ftime)/sqrt(n())*1.96),
+                                                                 E_EOIFM=mean(E_EOI/Ftime), E_EOIFMe=(sd(E_EOI/Ftime)/sqrt(n())*1.96),
+                                                                 E_WHBFM=mean(E_WHB/Ftime), E_WHBFMe=(sd(E_WHB/Ftime)/sqrt(n())*1.96),
+                                                                 E_DPSFM=mean(E_DPS/Ftime), E_DPSFMe=(sd(E_DPS/Ftime)/sqrt(n())*1.96),
+                                                                 E_triFM=mean(E_tri/Ftime), E_triFMe=(sd(E_tri/Ftime)/sqrt(n())*1.96),
+                                                                 E_lepFM=mean(E_lep/Ftime), E_lepFMe=(sd(E_lep/Ftime)/sqrt(n())*1.96),
+                                                                 E_BRFFM=mean(E_BRF/Ftime), E_BRFFMe=(sd(E_BRF/Ftime)/sqrt(n())*1.96),
+                                                                 E_phyFM=mean(E_phy/Ftime), E_phyFMe=(sd(E_phy/Ftime)/sqrt(n())*1.96),
+                                                                 E_ARYFM=mean(E_ARY/Ftime), E_ARYFMe=(sd(E_ARY/Ftime)/sqrt(n())*1.96),
+                                                                 ) 
+
+sBA$closed2 = factor(sBA$closed2, levels=c('Before', 'After'))
+sBA$name2 = factor(sBA$name2, levels=c('Roses area', 'Palamós area', 'Blanes area'))
+sBA$buffer = factor(sBA$buffer, levels=c('0m', '500m', '1000m', '2000m', '3000m', '5000m'))
+sBA = as.data.frame(sBA)
+
+#before/after IN area barplots
+setwd('/home/joan/Desktop/ICM_SAP/GIS/spillover_MAPareas/results_cuttedAreas/')
+ggplot(sBA %>% filter(buffer=='IN'), aes(x=closed2, y=FtimeM, group=name2, fill=closed2)) + 
+  geom_bar(position="dodge", stat="identity")+
+  geom_errorbar(aes(ymin=FtimeM - FtimeMe, ymax=FtimeM + FtimeMe), width=.2, position=position_dodge(.9))+
+  facet_grid(rows = vars(name2), scales="free")+ggtitle('Fishing time after protection')+ylab('Fishing time (h)')+
+  theme_bw()+theme(legend.position='none', title=element_text(size=10))
+ggsave('FtimeBeforeAfterBarPlots.tiff', width=10, height=20, units='cm')
+
+##total variables
+vars = list('FtimeM', 'Kg_TOTM', 'Kg_HKEM', 'Kg_NEPM','Kg_mulM', 'Kg_rapM', 'Kg_EOIM', 'Kg_WHBM', 'Kg_DPSM', 'Kg_triM', 'Kg_lepM', 'Kg_BRFM', 'Kg_phyM', 'Kg_ARYM')
+#'E_TOTM', 'E_HKEM', 'E_NEPM','E_mulM', 'E_rapM' , 'E_EOIM', 'E_WHBM', 'E_DPSM', 'E_triM', 'E_lepM', 'E_BRFM', 'E_phyM', 'E_ARYM' )
+setwd('/home/joan/Desktop/ICM_SAP/GIS/spillover_MAPareas/results_cuttedAreas/bufferMethod/varTotal/')
+for (var in vars){
+  print(var)
+  varMe = paste0(var,'e')
+  ggplot(sBA, aes_string(x='buffer', y=paste0(var,''), group='closed2', fill = 'closed2')) + 
+    geom_bar(position="dodge", stat="identity")+
+    geom_errorbar(aes_string(ymin=paste0(var,'-',varMe), ymax=paste0(var,'+',varMe)), width=.2, position=position_dodge(.9))+
+    facet_grid(rows = vars(name2))+
+    ggtitle(paste0('Landings ', substring(var,4,6)))+ylab(paste0('Annual mean (kg)'))+xlab('Buffer')+
+    theme_bw()+ theme(legend.title = element_blank(),
+                      strip.text.y = element_text(size=11),
+                      legend.text = element_text(size=11))
+  ggsave(paste0(var,'.png'), width=12, height=13, units='cm')
+}
+
+##variables/bufferArea
+setwd('/home/joan/Desktop/ICM_SAP/GIS/spillover_MAPareas/results/areasCAT/varByArea/')
+vars = list('FtimeAM', 'Kg_TOTAM', 'Kg_HKEAM', 'Kg_NEPAM','Kg_mulAM', 'Kg_rapAM', 'Kg_EOIAM', 'Kg_WHBAM', 'Kg_DPSAM', 'E_TOTAM', 'E_HKEAM', 'E_NEPAM','E_mulAM', 'E_rapAM', 'E_EOIAM', 'E_WHBAM', 'E_DPSAM' )
+for (var in vars){
+  print(var)
+  varMe = paste0(var,'e')
+  print(varMe)
+  ggplot(sBA, aes_string(x='buffer', y=paste0(var,''), group='closed2', fill = 'closed2')) + 
+    geom_bar(position="dodge", stat="identity")+
+    geom_errorbar(aes_string(ymin=paste0(var,'-',varMe), ymax=paste0(var,'+',varMe)), width=.2, position=position_dodge(.9))+
+    facet_grid(rows = vars(name))
+  ggsave(paste0(var,'.tiff'), width=12, height=13, units='cm')
+}
+
+##variables/Ftime
+vars = list('Kg_TOTFM', 'Kg_HKEFM', 'Kg_NEPFM','Kg_mulFM', 'Kg_rapFM', 'Kg_EOIFM', 'Kg_WHBFM', 'Kg_DPSFM', 'Kg_triFM', 'Kg_lepFM', 'Kg_BRFFM', 'Kg_phyFM', 'Kg_ARYFM')
+#'E_TOTFM', 'E_HKEFM', 'E_NEPFM','E_mulFM', 'E_rapFM', 'E_EOIFM', 'E_WHBFM', 'E_DPSFM', 'E_triFM', 'E_lepFM', 'E_BRFFM', 'E_phyFM', 'E_ARYFM' )
+setwd('/home/joan/Desktop/ICM_SAP/GIS/spillover_MAPareas/results_cuttedAreas/bufferMethod/varFtime/')
+for (var in vars){
+  print(var)
+  varMe = paste0(var,'e')
+  ggplot(sBA, aes_string(x='buffer', y=var, group='closed2', fill = 'closed2')) + 
+    geom_bar(position="dodge", stat="identity")+
+    geom_errorbar(aes_string(ymin=paste0(var,'-',varMe), ymax=paste0(var,'+',varMe)), width=.2, position=position_dodge(.9))+
+    facet_grid(rows = vars(name2))+
+    ggtitle(paste0('LPUE ', substring(var,4,6)))+ylab(paste0('Annual mean (kg/h)'))+xlab('Buffer')+
+    theme_bw()+ theme(legend.title = element_blank(),
+                      strip.text.y = element_text(size=11),
+                      legend.text = element_text(size=11))
+  ggsave(paste0(var,'.png'), width=12, height=13, units='cm')
+}
+##for horizontal legend:
+ggplot(sBA, aes_string(x='buffer', y=var, group='closed2', fill = 'closed2')) + 
+  geom_bar(position="dodge", stat="identity")+
+  geom_errorbar(aes_string(ymin=paste0(var,'-',varMe), ymax=paste0(var,'+',varMe)), width=.2, position=position_dodge(.9))+
+  facet_grid(rows = vars(name2))+
+  ggtitle(paste0('LPUE ', substring(var,4,6)))+ylab(paste0('Annual mean (kg/h)'))+
+  theme_bw()+ theme(legend.title = element_blank(), legend.position = 'bottom')
+ggsave(paste0('LEGEND.tiff'), width=12, height=13, units='cm')
+##2. BETHYMETRY METHODOLOGY
+{
+query = 'select * from "closedAreasCatSpillBathy2022"'
+b = dbGetQuery(conLocal, query)
+
+b$id_area = as.factor(b$id_area)
+b$name = as.factor(b$name)
+b$closed = as.factor(b$closed)
+b$gsa = as.factor(b$gsa)
+b$buffer = as.character(b$buffer)
+b$buffer = as.factor(b$buffer)
+
+b$year = as.numeric(b$year)
+b$closed2 = NA
+#b$closed2 = 'Before'
+#escamarla palamos
+b[b$id_area == 19 & b$year > 2017 & b$year < 2022, 36] = 'After'
+b[b$id_area == 19 & b$year > 2012 & b$year < 2017, 36] = 'Before'
+
+#repoblacio blanes-palamos
+#b[b$id_area == 21 & b$year > 2017, 28] = 'After'
+b[b$id_area == 21 & b$year > 2017 & b$year < 2022, 36] = 'After'
+b[b$id_area == 21 & b$year > 2012 & b$year < 2017, 36] = 'Before'
+
+#lluc Roses
+#b[b$id_area == 20 & b$year > 2013, 28] = 'After'
+b[b$id_area == 20 & b$year > 2013 & b$year < 2019, 36] = 'After'
+b[b$id_area == 20 & b$year > 2007 & b$year < 2013, 36] = 'Before'
+
+b$year = as.factor(b$year)
+b$closed2 = as.factor(b$closed2)
+
+b$name2 = NA
+b[b$id_area==19,37] = 'Palamós'
+b[b$id_area==20,37] = 'Roses'
+b[b$id_area==21,37] = 'Blanes'
+b$name2 = as.factor(b$name2)
+
+b$buffer = factor(b$buffer, levels=c('IN', 'Coastal', 'Sea', 'North', 'South'))
+id_areaCat = 21
+ggplot(b %>% filter(buffer=='IN' & id_area==id_areaCat))+ 
+  geom_line(aes(x=year, y =Ftime, group=name))+
+  theme_bw()+
+  theme_axis_style+
+  ggtitle(b[b$buffer=='IN' & b$id_area==id_areaCat,3]) + ylim(c(0,16000))
+ggsave('area20FtimeReduction.tiff', width=12, height=9, units='cm')
+
+#Variables over years
+ggplot(b)+ 
+  geom_line(aes(x=year, y =Kg_/Ftime, group=buffer, color=buffer))+
+  facet_grid(rows = vars(name2))+
+  theme_bw()+
+  theme_axis_style
+
+
+#barplots before/after
+bM = b %>% filter(!is.na(closed2)) %>% group_by(closed2, id_area, name2, area, buffer) %>% summarize(
+                                                                        FtimeM=mean(Ftime),  FtimeMe=(sd(Ftime)/sqrt(n())*1.96),
+                                                                        #totalKg
+                                                                        Kg_TOTM=mean(Kg_TOT), Kg_TOTMe=(sd(Kg_TOT)/sqrt(n())*1.96),
+                                                                        Kg_HKEM=mean(Kg_HKE), Kg_HKEMe=(sd(Kg_HKE)/sqrt(n())*1.96),
+                                                                        Kg_NEPM=mean(Kg_NEP), Kg_NEPMe=(sd(Kg_NEP)/sqrt(n())*1.96),
+                                                                        Kg_mulM=mean(Kg_mul), Kg_mulMe=(sd(Kg_mul)/sqrt(n())*1.96),
+                                                                        Kg_rapM=mean(Kg_rap), Kg_rapMe=(sd(Kg_rap)/sqrt(n())*1.96),
+                                                                        Kg_EOIM=mean(Kg_EOI), Kg_EOIMe=(sd(Kg_EOI)/sqrt(n())*1.96),
+                                                                        Kg_WHBM=mean(Kg_WHB), Kg_WHBMe=(sd(Kg_WHB)/sqrt(n())*1.96),
+                                                                        Kg_DPSM=mean(Kg_DPS), Kg_DPSMe=(sd(Kg_DPS)/sqrt(n())*1.96),
+                                                                        Kg_triM=mean(Kg_tri), Kg_triMe=(sd(Kg_tri)/sqrt(n())*1.96),
+                                                                        Kg_lepM=mean(Kg_lep), Kg_lepMe=(sd(Kg_lep)/sqrt(n())*1.96),
+                                                                        Kg_BRFM=mean(Kg_BRF), Kg_BRFMe=(sd(Kg_BRF)/sqrt(n())*1.96),
+                                                                        Kg_phyM=mean(Kg_DPS), Kg_phyMe=(sd(Kg_phy)/sqrt(n())*1.96),
+                                                                        #totalE
+                                                                        E_TOTM=mean(E_TOT), E_TOTMe=(sd(E_TOT)/sqrt(n())*1.96),
+                                                                        E_HKEM=mean(E_HKE), E_HKEMe=(sd(E_HKE)/sqrt(n())*1.96),
+                                                                        E_NEPM=mean(E_NEP), E_NEPMe=(sd(E_NEP)/sqrt(n())*1.96),
+                                                                        E_mulM=mean(E_mul), E_mulMe=(sd(E_mul)/sqrt(n())*1.96),
+                                                                        E_rapM=mean(E_rap), E_rapMe=(sd(E_rap)/sqrt(n())*1.96),
+                                                                        E_EOIM=mean(E_EOI), E_EOIMe=(sd(E_EOI)/sqrt(n())*1.96),
+                                                                        E_WHBM=mean(E_WHB), E_WHBMe=(sd(E_WHB)/sqrt(n())*1.96),
+                                                                        E_DPSM=mean(E_DPS), E_DPSMe=(sd(E_DPS)/sqrt(n())*1.96),
+                                                                        E_triM=mean(E_tri), E_triMe=(sd(E_tri)/sqrt(n())*1.96),
+                                                                        E_lepM=mean(E_lep), E_lepMe=(sd(E_lep)/sqrt(n())*1.96),
+                                                                        E_BRFM=mean(E_BRF), E_BRFMe=(sd(E_BRF)/sqrt(n())*1.96),
+                                                                        E_phyM=mean(E_DPS), E_phyMe=(sd(E_phy)/sqrt(n())*1.96),
+                                                                        #KgbyFtime
+                                                                        Kg_TOTFM=mean(Kg_TOT/Ftime), Kg_TOTFMe=(sd(Kg_TOT/Ftime)/sqrt(n())*1.96),
+                                                                        Kg_HKEFM=mean(Kg_HKE/Ftime), Kg_HKEFMe=(sd(Kg_HKE/Ftime)/sqrt(n())*1.96),
+                                                                        Kg_NEPFM=mean(Kg_NEP/Ftime), Kg_NEPFMe=(sd(Kg_NEP/Ftime)/sqrt(n())*1.96),
+                                                                        Kg_mulFM=mean(Kg_mul/Ftime), Kg_mulFMe=(sd(Kg_mul/Ftime)/sqrt(n())*1.96),
+                                                                        Kg_rapFM=mean(Kg_rap/Ftime), Kg_rapFMe=(sd(Kg_rap/Ftime)/sqrt(n())*1.96),
+                                                                        Kg_EOIFM=mean(Kg_EOI/Ftime), Kg_EOIFMe=(sd(Kg_EOI/Ftime)/sqrt(n())*1.96),
+                                                                        Kg_WHBFM=mean(Kg_WHB/Ftime), Kg_WHBFMe=(sd(Kg_WHB/Ftime)/sqrt(n())*1.96),
+                                                                        Kg_DPSFM=mean(Kg_DPS/Ftime), Kg_DPSFMe=(sd(Kg_DPS/Ftime)/sqrt(n())*1.96),
+                                                                        Kg_triFM=mean(Kg_tri/Ftime), Kg_triFMe=(sd(Kg_tri/Ftime)/sqrt(n())*1.96),
+                                                                        Kg_lepFM=mean(Kg_lep/Ftime), Kg_lepFMe=(sd(Kg_lep/Ftime)/sqrt(n())*1.96),
+                                                                        Kg_BRFFM=mean(Kg_BRF/Ftime), Kg_BRFFMe=(sd(Kg_BRF/Ftime)/sqrt(n())*1.96),
+                                                                        Kg_phyFM=mean(Kg_DPS/Ftime), Kg_phyFMe=(sd(Kg_phy/Ftime)/sqrt(n())*1.96),
+                                                                        #EbyFtime
+                                                                        E_TOTFM=mean(E_TOT/Ftime), E_TOTFMe=(sd(E_TOT/Ftime)/sqrt(n())*1.96),
+                                                                        E_HKEFM=mean(E_HKE/Ftime), E_HKEFMe=(sd(E_HKE/Ftime)/sqrt(n())*1.96),
+                                                                        E_NEPFM=mean(E_NEP/Ftime), E_NEPFMe=(sd(E_NEP/Ftime)/sqrt(n())*1.96),
+                                                                        E_mulFM=mean(E_mul/Ftime), E_mulFMe=(sd(E_mul/Ftime)/sqrt(n())*1.96),
+                                                                        E_rapFM=mean(E_rap/Ftime), E_rapFMe=(sd(E_rap/Ftime)/sqrt(n())*1.96),
+                                                                        E_EOIFM=mean(E_EOI/Ftime), E_EOIFMe=(sd(E_EOI/Ftime)/sqrt(n())*1.96),
+                                                                        E_WHBFM=mean(E_WHB/Ftime), E_WHBFMe=(sd(E_WHB/Ftime)/sqrt(n())*1.96),
+                                                                        E_DPSFM=mean(E_DPS/Ftime), E_DPSFMe=(sd(E_DPS/Ftime)/sqrt(n())*1.96),
+                                                                        E_triFM=mean(E_tri/Ftime), E_triFMe=(sd(E_tri/Ftime)/sqrt(n())*1.96),
+                                                                        E_lepFM=mean(E_lep/Ftime), E_lepFMe=(sd(E_lep/Ftime)/sqrt(n())*1.96),
+                                                                        E_BRFFM=mean(E_BRF/Ftime), E_BRFFMe=(sd(E_BRF/Ftime)/sqrt(n())*1.96),
+                                                                        E_phyFM=mean(E_DPS/Ftime), E_phyFMe=(sd(E_phy/Ftime)/sqrt(n())*1.96)
+                                                                      ) 
+                                                                      
+bM$closed2 = factor(bM$closed2, levels=c('Before', 'After'))
+bM$name2 = factor(bM$name2, levels=c('Roses', 'Palamós', 'Blanes'))
+bM$buffer = factor(bM$buffer, levels=c('IN', 'Coastal', 'Sea', 'North', 'South'))
+bM = as.data.frame(bM)
+
+##total variables
+vars = list('FtimeM', 'Kg_TOTM', 'Kg_HKEM', 'Kg_NEPM','Kg_mulM', 'Kg_rapM', 'Kg_EOIM', 'Kg_WHBM', 'Kg_DPSM', 'E_TOTM', 'E_HKEM', 'E_NEPM','E_mulM', 'E_rapM' , 'E_EOIM', 'E_WHBM', 'E_DPSM' )
+setwd('/home/joan/Desktop/ICM_SAP/GIS/spillover_MAPareas/results_cuttedAreas/bathymetryMethod/varTotal/')
+for (var in vars){
+  print(var)
+  varMe = paste0(var,'e')
+  ggplot(bM, aes_string(x='buffer', y=paste0(var,''), group='closed2', fill = 'closed2')) + 
+    geom_bar(position="dodge", stat="identity")+
+    geom_errorbar(aes_string(ymin=paste0(var,'-',varMe), ymax=paste0(var,'+',varMe)), width=.2, position=position_dodge(.9))+
+    facet_grid(rows = vars(name2))+ggtitle('Bathymetry method - TotalLandings')
+  ggsave(paste0(var,'.tiff'), width=12, height=13, units='cm')
+}
+
+##variables/Ftime
+vars = list('Kg_TOTFM', 'Kg_HKEFM', 'Kg_NEPFM','Kg_mulFM', 'Kg_rapFM', 'Kg_EOIFM', 'Kg_WHBFM', 'Kg_DPSFM', 'E_TOTFM', 'E_HKEFM', 'E_NEPFM','E_mulFM', 'E_rapFM', 'E_EOIFM', 'E_WHBFM', 'E_DPSFM' )
+setwd('/home/joan/Desktop/ICM_SAP/GIS/spillover_MAPareas/results_cuttedAreas/bathymetryMethod/varFtime/')
+for (var in vars){
+  print(var)
+  varMe = paste0(var,'e')
+  ggplot(bM, aes_string(x='buffer', y=var, group='closed2', fill = 'closed2')) + 
+    geom_bar(position="dodge", stat="identity")+
+    geom_errorbar(aes_string(ymin=paste0(var,'-',varMe), ymax=paste0(var,'+',varMe)), width=.2, position=position_dodge(.9))+
+    facet_grid(rows = vars(name2))+ggtitle('Bathymetry method - LPUE')
+  ggsave(paste0(var,'.tiff'), width=12, height=13, units='cm')
+}                                                                    
+                                                                      
+}   
+
+##3. CONTEXT LANDINGS AND FTIME
+##Ftime + Landings vmsintfFtCa
+query3 = 'SELECT * from "landingsFtimeVmsintfftcaYearPort"'
+f = dbGetQuery(conLocal, query3)
+f$BasePortCode = as.factor(f$BasePortCode)
+f$namePort = NA
+f[f$BasePortCode==64600, 46] = 'Roses'
+f[f$BasePortCode==64500, 46] = 'Palamós'
+f[f$BasePortCode==64410, 46] = 'Blanes'
+f$namePort = as.factor(f$namePort)
+f = f %>% filter(year>2008)
+f$year = as.factor(f$year)
+
+setwd('/home/joan/Desktop/ICM_SAP/GIS/spillover_MAPareas/results_cuttedAreas/FtimeLandingsByPort/')
+f$namePort = factor(f$namePort, levels=c('Roses', 'Palamós', 'Blanes'))
+portColors = c('#ed0193', '#6198e5', '#7ae6c6')
+ggplot(f %>% filter(BasePortCode=='64600' | BasePortCode=='64500' | BasePortCode=='64410'))+ 
+  geom_line(aes(x=year, y =Kg_NEP, group=namePort, color=namePort), size=1)+
+  theme_bw()+
+  theme_axis_style+
+  scale_color_manual(values=portColors)+
+  ggtitle('Fishing time')
+ggsave('Ftime.tiff', width=15, height=9, units='cm')
+
+##Landings VCPE
+##I get landings from vcpe to calculate global LPUE with real landings and not landings linked to vms data. This way we "avoid" biases derived from 
+##vms fleet coverage changes in 2012. 
+query4 = 'SELECT * from "landingsVcpeYearPortSps"'
+l = dbGetQuery(conLocal, query4)
+l$BasePortCode = as.factor(l$BasePortCode)
+l$namePort = NA
+l[l$BasePortCode==64600, 6] = 'Roses'
+l[l$BasePortCode==64500, 6] = 'Palamós'
+l[l$BasePortCode==64410, 6] = 'Blanes'
+l$namePort = as.factor(l$namePort)
+l = l %>% filter(year>2008)
+l$year = as.factor(l$year)
+l$Sp = as.factor(l$Sp)
+
+l$Sp2 = as.character(l$Sp)
+l[l$Sp=='GUG', 7] = 'tri'
+l[l$Sp=='GUI', 7] = 'tri'
+l[l$Sp=='GUN', 7] = 'tri'
+l[l$Sp=='GUU', 7] = 'tri'
+l[l$Sp=='GUX', 7] = 'tri'
+l[l$Sp=='GUY', 7] = 'tri'
+l[l$Sp=='LDV', 7] = 'tri'
+l[l$Sp=='LDB', 7] = 'lep'
+l[l$Sp=='LEZ', 7] = 'lep'
+l[l$Sp=='MEG', 7] = 'lep'
+l[l$Sp=='MUR', 7] = 'mul'
+l[l$Sp=='MUX', 7] = 'mul'
+l[l$Sp=='MUT', 7] = 'mul'
+l[l$Sp=='FOR', 7] = 'phy'
+l[l$Sp=='FOX', 7] = 'phy'
+l[l$Sp=='GBF', 7] = 'phy'
+l[l$Sp=='ANK', 7] = 'rap'
+l[l$Sp=='MNZ', 7] = 'rap'
+l[l$Sp=='MON', 7] = 'rap'
+l$Sp2 = as.factor(l$Sp2)
+
+l = l %>% group_by(year, BasePortCode, namePort, Sp2) %>% summarize(kg = sum(kg), eu=sum(eu))
+l = as.data.frame(l)
+
+ggplot(l %>% group_by(year, Sp2) %>% summarize(kg=sum(kg), eu=sum(eu)) %>% filter(Sp2=='ARA'))+
+  geom_line(aes(x=year, y=kg, group = Sp2, color = Sp2))
+
+lf = merge(l,f %>% select(year, BasePortCode, namePort, Ftime), by=c('year','BasePortCode', 'namePort'))
+lf$namePort = factor(lf$namePort, levels=c('Roses', 'Palamós', 'Blanes'))
+portColors = c('#ed0193', '#6198e5', '#7ae6c6')
+sps = c('HKE', 'NEP', 'DPS', 'BRF', 'ARY', 'tri', 'lep', 'phy', 'rap', 'mul', 'WHB', 'EOI', 'ARA')
+
+for (sp in sps) {
+  print(sp)
+  ggplot(lf %>% filter((BasePortCode=='64600' | BasePortCode=='64500' | BasePortCode=='64410') & Sp2==sp))+ 
+    geom_line(aes(x=year, y=kg, group=namePort, color=namePort), size = 1)+
+    theme_bw()+
+    theme_axis_style+
+    scale_color_manual(values=portColors)+
+    ggtitle(paste0('Global fleet trends - ', sp,' landings'))
+  ggsave(paste0('Kg_',sp,'.tiff'), width=15, height=9, units='cm')
+}
+
+for (sp in sps) {
+  print(sp)
+  ggplot(lf %>% filter((BasePortCode=='64600' | BasePortCode=='64500' | BasePortCode=='64410') & Sp2==sp))+ 
+    geom_line(aes(x=year, y=kg/Ftime, group=namePort, color=namePort), size = 1)+
+    theme_bw()+
+    theme_axis_style+
+    scale_color_manual(values=portColors)+
+    ggtitle(paste0('Global fleet trends - ', sp,' LPUE'))
+  ggsave(paste0('Kg_Ftime_',sp,'.tiff'), width=15, height=9, units='cm')
+}
+
+#all LPUE fleet trends in a plot
+lf$nameSp2 = lf$Sp2
+lf$nameSp2 = as.character(lf$nameSp2)
+lf[lf$Sp2 == 'HKE', 8] = 'Merluccius merluccius'
+lf[lf$Sp2 == 'mul', 8] = 'Mullus spp'
+lf[lf$Sp2 == 'NEP', 8] = 'Nephrops norvegicus'
+lf[lf$Sp2 == 'DPS', 8] = 'Parapenaeus longirostris'
+lf[lf$Sp2 == 'ARY', 8] = 'Argentina sphyraena'
+lf[lf$Sp2 == 'BRF', 8] = 'Helicolenus dactylopterus'
+lf[lf$Sp2 == 'lep', 8] = 'Lepidorhombus boscii'
+lf[lf$Sp2 == 'tri', 8] = 'Triglidae spp'
+lf$nameSp2 = as.factor(lf$nameSp2)
+lf$nameSp2 = factor(lf$nameSp2, levels=c('Mullus spp', 'Merluccius merluccius', 'Nephrops norvegicus', 'Parapenaeus longirostris', 
+                                         'Helicolenus dactylopterus', 'Argentina sphyraena', 'Triglidae spp', 'Lepidorhombus boscii'))
+
+setwd('/home/joan/Desktop/ICM_SAP/GIS/spillover_MAPareas/results_cuttedAreas/FtimeLandingsByPort/')
+ggplot(lf %>% filter((BasePortCode=='64600' | BasePortCode=='64500' | BasePortCode=='64410') &
+                       Sp2 != 'WHB' & Sp2 != 'phy' & Sp2 != 'EOI' & Sp2 != 'rap' & Sp2!='ARA'))+ 
+  geom_line(aes(x=year, y=kg/Ftime, group=namePort, color=namePort), size = 0.8)+
+  theme_bw()+
+  facet_wrap(~nameSp2, ncol=2, scale='free_y')+
+  scale_color_manual(values=portColors)+
+  #ggtitle(paste0('Fleet trends -  LPUE'))+
+  theme(legend.position = 'bottom', 
+        legend.title = element_blank(),
+        legend.text = element_text(size=10),
+        axis.title.x = element_blank(),
+        axis.text.y = element_text(size=10),
+        axis.text.x = element_text(size=10, angle = 45, hjust=0.95),
+        strip.text = element_text(size=11, face='italic'))+
+  ylab('LPUE (Kg/h)')
+ggsave(paste0('Fleet_LPUE_allSpecies.png'), width=18, height=25, units='cm')
+
+##4. GLOBAL FLEET LPUE STANDARDIZATION. LPUEratio=LPUEarea/LPUEfleet
+##transform buffer dataset from wide to long
+slongKg = gather(s %>% select(year, id_area, name2, area, buffer, name2, closed, Ftime,
+                    Kg_TOT, Kg_HKE, Kg_mul, Kg_NEP, Kg_rap, Kg_EOI, Kg_WHB, Kg_DPS, Kg_tri, Kg_lep, Kg_BRF, Kg_ARY, Kg_phy), key=Sp, value=Kg, Kg_TOT:Kg_phy)
+slongKg$Sp = as.factor(substring(slongKg$Sp, 4,6))
+
+slongEu = gather(s %>% select(year, id_area, name2, area, buffer, name2, closed, Ftime,
+                              E_TOT, E_HKE, E_mul, E_NEP, E_rap, E_EOI, E_WHB, E_DPS, E_tri, E_lep, E_BRF, E_ARY, E_phy), key=Sp, value=Eu, E_TOT:E_phy)
+slongEu$Sp = as.factor(substring(slongEu$Sp, 3,5))
+
+#Merge kg and Eu by buffer long dataframes
+slong = merge(slongKg, slongEu, by=c('year','id_area', 'name2','closed','area','buffer','Sp','Ftime'))
+
+ggplot(slong %>% filter(Sp=='HKE'), aes(y=Kg/Ftime, x=year, group=buffer, color=buffer))+
+  geom_line()+
+  facet_grid(rows = vars(name2))
+
+#FishingLandings for global fleet
+flongKg = gather(f %>% select(year, BasePortCode, namePort, Ftime,
+             Kg_TOT, Kg_HKE, Kg_mul, Kg_NEP, Kg_rap, Kg_EOI, Kg_WHB, Kg_DPS, Kg_tri, Kg_lep, Kg_BRF, Kg_ARY, Kg_phy), key=Sp, value=KgFleet, Kg_TOT:Kg_phy)
+flongKg$Sp = as.factor(substring(flongKg$Sp, 4,6))
+
+flongEu = gather(f %>% select(year, BasePortCode, namePort, Ftime,
+             E_TOT, E_HKE, E_mul, E_NEP, E_rap, E_EOI, E_WHB, E_DPS, E_tri, E_lep, E_BRF, E_ARY, E_phy), key=Sp, value=EuFleet, E_TOT:E_phy)
+flongEu$Sp = as.factor(substring(flongEu$Sp, 3,5))
+
+flong = merge(flongKg, flongEu, by=c('year','BasePortCode', 'namePort','Sp','Ftime'))
+
+flong = flong %>% rename('FtimeFleet' = Ftime)
+
+
+ggplot(flong %>% filter(Sp=='tri', !is.na(namePort)), aes(y=FtimeFleet, x=year, group=BasePortCode, color=BasePortCode))+
+  geom_line()
+
+#filter flong dataset to get only fleets opering in each studied area
+#Palamos area (19) ports Roses 64600 i palamos 64500
+f_19 = flong %>% filter(BasePortCode == 64600 | BasePortCode == 64500) %>% group_by(year, Sp) %>% summarize(FtimeFleet = sum(FtimeFleet),
+                                                                                                            KgFleet = sum(KgFleet),
+                                                                                                            EuFleet = sum(EuFleet))
+f_19m = merge(slong %>% filter(id_area==19), f_19, by=c('year', 'Sp'))
+f_19m = f_19m  %>% mutate(LPUEbuffer = Kg/Ftime, LPUEfleet=KgFleet/FtimeFleet)
+
+#Roses area (20) ports Roses 64600
+f_20 = flong %>% filter(BasePortCode == 64600) %>% group_by(year, Sp) %>% summarize(FtimeFleet = sum(FtimeFleet),
+                                                                                                            KgFleet = sum(KgFleet),
+                                                                                                            EuFleet = sum(EuFleet))
+f_20m = merge(slong %>% filter(id_area==20), f_20, by=c('year', 'Sp'))
+f_20m = f_20m  %>% mutate(LPUEbuffer = Kg/Ftime, LPUEfleet=KgFleet/FtimeFleet)
+
+#Blanes area (21) ports Palamos 64500 i Blanes 64410
+f_21 = flong %>% filter(BasePortCode == 64500 | BasePortCode == 64410) %>% group_by(year, Sp) %>% summarize(FtimeFleet = sum(FtimeFleet),
+                                                                                    KgFleet = sum(KgFleet),
+                                                                                    EuFleet = sum(EuFleet))
+f_21m = merge(slong %>% filter(id_area==21), f_21, by=c('year', 'Sp'))
+f_21m = f_21m  %>% mutate(LPUEbuffer = Kg/Ftime, LPUEfleet=KgFleet/FtimeFleet)
+
+#Merged table
+sFleet = rbind(f_19m, f_20m, f_21m)
+
+sFleet$name2 = factor(sFleet$name2, levels=c('Roses area', 'Palamós area', 'Blanes area'))
+
+setwd('/home/joan/Desktop/ICM_SAP/GIS/spillover_MAPareas/results_cuttedAreas/bufferMethod/varLPUEratioYears/')
+sps = levels(sFleet$Sp)
+for (sp in sps){
+  print(sp)
+  ggplot(sFleet %>% filter(Sp==sp), aes(x=year, y=LPUEbuffer/LPUEfleet, group=buffer, color=buffer))+ 
+    geom_line(size=0.75)+
+    facet_grid(rows = vars(name2))+
+    scale_color_brewer(palette="Dark2")+
+    theme_bw()+
+    theme_axis_style+
+    geom_vline(data=filter(s, id_area==19 |id_area==21), aes(xintercept='2017'), linetype='dashed', color='black', size=0.5)+
+    geom_vline(data=filter(s, id_area==20), aes(xintercept='2013'), linetype='dashed', color='black', size=0.5)+
+    #geom_smooth(method='lm', alpha=0.15, linetype='dotted')+
+    ylab(paste0('LPUE ratio ', sp))
+  ggsave(paste0('LPUEratio_',sp,'.tiff'), width=12, height=14, units='cm')
+}
+
+##linear regression
+ggplot(sFleet %>% filter(id_area==19, Sp=='mul', buffer=='1000m'), aes(x=year, y =LPUEbuffer, group=1))+
+  geom_line()+
+  geom_smooth(method='lm')
+
+#extract LPUEfleet over years mean
+sFleet = sFleet %>% group_by(Sp, buffer, id_area) %>% mutate(LPUEbufferM = mean(LPUEbuffer), LPUEfleetM = mean(LPUEfleet))
+setwd('/home/joan/Desktop/ICM_SAP/GIS/spillover_MAPareas/results_cuttedAreas/bufferMethod/varLPUEratioYears/')
+sps = levels(sFleet$Sp)
+for (sp in sps){
+  print(sp)
+  ggplot(sFleet %>% filter(Sp==sp), aes(x=year, y=(LPUEbuffer-LPUEbufferM), group=buffer, color=buffer))+ 
+    geom_line(size=0.75)+
+    facet_grid(rows = vars(name2))+
+    scale_color_brewer(palette="Dark2")+
+    theme_bw()+
+    theme_axis_style+
+    geom_vline(data=filter(s, id_area==19 |id_area==21), aes(xintercept='2017'), linetype='dashed', color='black', size=0.5)+
+    geom_vline(data=filter(s, id_area==20), aes(xintercept='2013'), linetype='dashed', color='black', size=0.5)+
+    #geom_smooth(method='lm', alpha=0.15, linetype='dotted')+
+    ylab(paste0('LPUEbuffer - LPUEbufferM ', sp))
+  ggsave(paste0('LPUEratio_',sp,'.tiff'), width=12, height=14, units='cm')
+}
+
+##5. CHECK ROSES CALIBRES FOR HKE
+query5 = 'select extract(\'YEAR\' from "Date") as "year", "Calibre", "Size", sum("Weight") as "Kg", sum("Amount") as "Eu" from vcpe
+          JOIN "port" ON "port"."Id" = "vcpe"."PortId"
+          JOIN "vessel" ON "vessel"."Id" = "vcpe"."VesselId"
+          where "GearMainCode" = \'OTB\' and "port"."Code"  = 64600 and "SpecieCode" = \'HKE\'
+          group by extract(\'YEAR\' from "Date"), "Calibre", "Size"'
+cal = dbGetQuery(conProd, query5)
+cal$year = as.factor(cal$year)
+cal$Calibre = as.factor(cal$Calibre)
+cal$Size = as.factor(cal$Size)
+ggplot(cal, aes(x=year, y= Kg, group=Size, color = Size)) + geom_line()
